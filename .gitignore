@@ -1,0 +1,17 @@
+# Bảo mật: Không đưa API key lên GitHub
+.env
+.streamlit/secrets.toml
+
+# File nhị phân lớn
+cloudflared.exe
+*.exe
+
+# File tạm Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# File tạm nhật ký Cloudflare cục bộ
+data/redteam_collected/cloudflared.log
+data/redteam_collected/cloudflare_url.txt
