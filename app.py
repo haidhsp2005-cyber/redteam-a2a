@@ -1279,9 +1279,15 @@ elif menu == "📊 Bảng Quản Trị & Xuất TEMPLATE.csv (Giáo Viên)":
         </div>
     """, unsafe_allow_html=True)
 
-    admin_pass = st.text_input("Nhập mật khẩu Giáo viên:", type="password")
+    ADMIN_PASS = "admin123"
+    if hasattr(st, "secrets") and "ADMIN_PASSWORD" in st.secrets:
+        ADMIN_PASS = str(st.secrets["ADMIN_PASSWORD"]).strip()
+    elif os.getenv("ADMIN_PASSWORD"):
+        ADMIN_PASS = str(os.getenv("ADMIN_PASSWORD")).strip()
 
-    if admin_pass == "admin123":
+    admin_pass = st.text_input("Nhập mật khẩu Giáo viên:", type="password", placeholder="Nhập mật khẩu quản trị...")
+
+    if admin_pass == ADMIN_PASS:
         st.success("🔓 Xác thực thành công! Quyền quản trị Giáo viên đã được kích hoạt.")
 
         all_rows = []
@@ -1484,6 +1490,6 @@ elif menu == "📊 Bảng Quản Trị & Xuất TEMPLATE.csv (Giáo Viên)":
         st.markdown("</div>", unsafe_allow_html=True)
 
     elif admin_pass != "":
-        st.error("❌ Mật khẩu không chính xác!")
+        st.error("❌ Mật khẩu không chính xác! Vui lòng thử lại.")
     else:
-        st.info("Vui lòng nhập mật khẩu quản trị (`admin123`) để mở khóa.")
+        st.info("🔒 Khu vực bảo mật dành riêng cho Giáo viên. Vui lòng nhập mật khẩu quản trị để tiếp tục.")
