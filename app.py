@@ -1279,7 +1279,7 @@ elif menu == "📊 Bảng Quản Trị & Xuất TEMPLATE.csv (Giáo Viên)":
         </div>
     """, unsafe_allow_html=True)
 
-    ADMIN_PASS = "admin123"
+    ADMIN_PASS = "Longcang2026@"
     if hasattr(st, "secrets") and "ADMIN_PASSWORD" in st.secrets:
         ADMIN_PASS = str(st.secrets["ADMIN_PASSWORD"]).strip()
     elif os.getenv("ADMIN_PASSWORD"):
