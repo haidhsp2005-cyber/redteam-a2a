@@ -18,7 +18,7 @@ st.set_page_config(
     page_title="Chiến Dịch Red-Team A2A (Huấn Luyện SLM)",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # --- TIÊM CSS TÙY BIẾN RESPONSIVE CHO MỌI THIẾT BỊ ĐIỆN THOẠI & MÁY TÍNH ---
@@ -26,22 +26,17 @@ CUSTOM_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* Ẩn header, toolbar, nút GitHub và menu của Streamlit để học sinh không mò vào repo xem code */
+/* Ẩn nút Deploy, GitHub và Menu 3 chấm, GIỮ NGUYÊN nút mở/đóng Sidebar */
+.stDeployButton, [data-testid="stToolbarActions"], #MainMenu, footer {
+    display: none !important;
+}
 header[data-testid="stHeader"] {
-    display: none !important;
+    background: transparent !important;
 }
-[data-testid="stToolbar"] {
-    visibility: hidden !important;
-    display: none !important;
-}
-.stDeployButton {
-    display: none !important;
-}
-#MainMenu {
-    visibility: hidden !important;
-}
-footer {
-    visibility: hidden !important;
+[data-testid="stSidebarCollapseButton"], [data-testid="collapsedControl"] {
+    visibility: visible !important;
+    display: block !important;
+    z-index: 999999 !important;
 }
 
 html, body, [class*="css"] {
@@ -538,8 +533,10 @@ def get_top_5():
 # --- TÍCH HỢP ĐỒNG BỘ GOOGLE SHEETS BỀN VỮNG (CHỐNG MẤT DỮ LIỆU KHI RESTART) ---
 GSHEET_CONFIG_PATH = DATA_DIR / "gsheet_config.json"
 
+DEFAULT_GSHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzN8Q3rJ3Yc7mX5BKjc0gXMlP72LJahF2EB1Qi5O2DuOpIUunwlasjfTUmjSfC7hNTN/exec"
+
 def get_google_sheet_url():
-    """Lấy URL Webhook Google Sheet từ Secrets, biến môi trường hoặc file cấu hình."""
+    """Lấy URL Webhook Google Sheet từ Secrets, biến môi trường, file cấu hình hoặc URL mặc định của thầy."""
     if hasattr(st, "secrets") and "GOOGLE_SHEET_URL" in st.secrets:
         u = str(st.secrets["GOOGLE_SHEET_URL"]).strip()
         if u:
@@ -550,10 +547,12 @@ def get_google_sheet_url():
         try:
             with open(GSHEET_CONFIG_PATH, "r", encoding="utf-8") as f:
                 c = json.load(f)
-                return str(c.get("url", "")).strip()
+                val = str(c.get("url", "")).strip()
+                if val:
+                    return val
         except Exception:
             pass
-    return ""
+    return DEFAULT_GSHEET_WEBHOOK_URL
 
 def set_google_sheet_url(url: str):
     """Lưu URL Webhook Google Sheet."""
