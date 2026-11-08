@@ -39,6 +39,19 @@ header[data-testid="stHeader"] {
     z-index: 999999 !important;
 }
 
+/* Ẩn triệt để nút đỏ 'Hosted with Streamlit', huy hiệu viewer badge ở góc dưới bên phải */
+a[href*="streamlit.io"],
+[data-testid="manage-app-button"],
+div[class*="viewerBadge"],
+div[class*="ProfileButton"],
+#viewer-badge,
+.viewerBadge_container__r5tak {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 html, body, [class*="css"] {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     font-size: 15px;
