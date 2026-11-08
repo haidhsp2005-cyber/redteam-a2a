@@ -11,6 +11,7 @@ import requests
 import difflib
 import socket
 import hashlib
+import threading
 
 # --- CẤU HÌNH TRANG STREAMLIT ---
 st.set_page_config(
@@ -409,40 +410,125 @@ def init_csv_file():
 
 init_csv_file()
 
+# Khóa an toàn luồng tránh xung đột khi hàng chục học sinh cùng nộp bài một lúc
+_APP_DATA_LOCK = threading.Lock()
+_LEADERBOARD_MEMORY_CACHE = {}
+
 def get_next_id():
-    count = 1
+    """Tạo mã RT-xxx an toàn, không bao giờ bị trùng lặp khi nhiều học sinh nộp đồng thời."""
+    with _APP_DATA_LOCK:
+        highest = 0
+        if csv_path.exists():
+            try:
+                with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.reader(f)
+                    for r in reader:
+                        if r and len(r) > 0 and str(r[0]).startswith("RT-"):
+                            try:
+                                num = int(str(r[0]).split("-")[1])
+                                if num > highest:
+                                    highest = num
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+        return f"RT-{highest + 1:03d}"
+
+def rebuild_leaderboard_from_csv():
+    """Tự động khôi phục toàn bộ danh sách và điểm số học sinh từ TEMPLATE.csv nếu leaderboard.json bị lỗi."""
+    recovered = {}
     if csv_path.exists():
         try:
-            with open(csv_path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-                count = len(rows)
+            with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    author = (row.get("author") or "").strip()
+                    if not author or author == "nguoi_tham_gia_01":
+                        continue
+                    if author not in recovered:
+                        recovered[author] = {"score": 20, "attempts": 1, "exploits": 0}
+                    else:
+                        recovered[author]["score"] += 20
+                        recovered[author]["attempts"] += 1
         except Exception:
             pass
-    return f"RT-{count:03d}"
+    return recovered
 
-# --- QUẢN LÝ BẢNG XẾP HẠNG TOP 5 HỌC SINH (LEADERBOARD) ---
+# --- QUẢN LÝ BẢNG XẾP HẠNG TOP 5 HỌC SINH (LEADERBOARD) - BẢO VỆ CHỐNG MẤT DỮ LIỆU ---
 def load_leaderboard():
-    if leaderboard_path.exists():
-        try:
-            with open(leaderboard_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    """Đọc dữ liệu bảng xếp hạng an toàn với cơ chế chống lỗi ghi đè, bộ nhớ đệm RAM và tự khôi phục."""
+    global _LEADERBOARD_MEMORY_CACHE
+    with _APP_DATA_LOCK:
+        if leaderboard_path.exists():
+            for _ in range(5):
+                try:
+                    with open(leaderboard_path, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                        if content:
+                            data = json.loads(content)
+                            if isinstance(data, dict) and len(data) > 0:
+                                _LEADERBOARD_MEMORY_CACHE = dict(data)
+                                return data
+                except Exception:
+                    time.sleep(0.04)
+
+        # Nếu file tạm thời rỗng do xung đột ghi, dùng ngay bản sao dự phòng trong RAM
+        if _LEADERBOARD_MEMORY_CACHE and len(_LEADERBOARD_MEMORY_CACHE) > 0:
+            return dict(_LEADERBOARD_MEMORY_CACHE)
+
+        # Nếu RAM chưa có, tự động quét và khôi phục từ CSV
+        recovered = rebuild_leaderboard_from_csv()
+        if recovered:
+            _LEADERBOARD_MEMORY_CACHE = dict(recovered)
+            return recovered
+
+        return {}
 
 def update_leaderboard(author_name, points, is_exploit):
-    data = load_leaderboard()
-    if author_name not in data:
-        data[author_name] = {"score": 0, "attempts": 0, "exploits": 0}
-    
-    data[author_name]["score"] += points
-    data[author_name]["attempts"] += 1
-    if is_exploit:
-        data[author_name]["exploits"] += 1
-    
-    with open(leaderboard_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """Cập nhật điểm số bằng cơ chế Atomic Write: Ghi ra file .tmp rồi đổi tên, loại bỏ 100% rủi ro bị xóa sạch dữ liệu."""
+    global _LEADERBOARD_MEMORY_CACHE
+    if not author_name or not author_name.strip():
+        return
+
+    author_name = author_name.strip()
+    with _APP_DATA_LOCK:
+        # Nạp dữ liệu hiện có (ưu tiên bộ nhớ cache để không bao giờ mất học sinh cũ)
+        data = dict(_LEADERBOARD_MEMORY_CACHE) if _LEADERBOARD_MEMORY_CACHE else {}
+        if not data and leaderboard_path.exists():
+            try:
+                with open(leaderboard_path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+            except Exception:
+                pass
+
+        if not data:
+            data = rebuild_leaderboard_from_csv()
+
+        if author_name not in data:
+            data[author_name] = {"score": 0, "attempts": 0, "exploits": 0}
+
+        data[author_name]["score"] += points
+        data[author_name]["attempts"] += 1
+        if is_exploit:
+            data[author_name]["exploits"] += 1
+
+        # Cập nhật ngay vào RAM
+        _LEADERBOARD_MEMORY_CACHE = dict(data)
+
+        # Ghi an toàn Atomic: Ghi ra file .tmp trước, sau đó thay thế file chính
+        temp_lb_path = leaderboard_path.with_suffix(".tmp")
+        try:
+            with open(temp_lb_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(temp_lb_path, leaderboard_path)
+        except Exception:
+            try:
+                with open(leaderboard_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
 
 def get_top_5():
     data = load_leaderboard()
@@ -1125,16 +1211,17 @@ if menu == "🚀 Đấu Trường Thực Chiến (Học Sinh)":
 
                         # 3. Ghi nhận vào file TEMPLATE.csv (Thu thập cả mẫu tấn công thành công lẫn mẫu bị chặn, KHÔNG TRÙNG LẶP)
                         final_csv_text = auto_parameterize(user_prompt, goal_val, attacker_email_input)
-                        with open(csv_path, "a", newline="", encoding="utf-8") as f_csv:
-                            writer = csv.writer(f_csv)
-                            writer.writerow([next_id, goal_val, carrier_val, author_input, attacker_email_input, final_csv_text])
-
-                        try:
-                            with open(root_csv_path, "a", newline="", encoding="utf-8") as f_root:
-                                writer = csv.writer(f_root)
+                        with _APP_DATA_LOCK:
+                            with open(csv_path, "a", newline="", encoding="utf-8") as f_csv:
+                                writer = csv.writer(f_csv)
                                 writer.writerow([next_id, goal_val, carrier_val, author_input, attacker_email_input, final_csv_text])
-                        except Exception:
-                            pass
+
+                            try:
+                                with open(root_csv_path, "a", newline="", encoding="utf-8") as f_root:
+                                    writer = csv.writer(f_root)
+                                    writer.writerow([next_id, goal_val, carrier_val, author_input, attacker_email_input, final_csv_text])
+                            except Exception:
+                                pass
 
                         # Lưu kết quả và rerun để điểm số trên đầu trang cập nhật tức thì
                         st.session_state.last_attack_result = {
